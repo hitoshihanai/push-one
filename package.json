@@ -1,0 +1,14 @@
+{
+  "name": "push-one",
+  "type": "module",
+  "version": "1.0.0",
+  "description": "Push One — Everyday Push-up",
+  "scripts": {
+    "dev": "astro dev --host",
+    "build": "astro build",
+    "preview": "astro preview"
+  },
+  "dependencies": {
+    "astro": "^4.16.0"
+  }
+}
