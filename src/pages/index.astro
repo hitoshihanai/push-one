@@ -159,7 +159,7 @@ import Layout from '../layouts/Layout.astro';
         </button>
       </div>
 
-      <!-- 日付区切り -->
+      <!-- 日付区切り・繰り返し通知 -->
       <div class="settings-group">
         <div class="setting-row">
           <div class="setting-info">
@@ -173,6 +173,18 @@ import Layout from '../layouts/Layout.astro';
             <option value="3">午前3時</option>
             <option value="4">午前4時</option>
             <option value="5">午前5時</option>
+          </select>
+        </div>
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-title">繰り返し通知</span>
+            <span class="setting-desc">達成まで繰り返す間隔</span>
+          </div>
+          <select id="repeat-interval" class="select-input" aria-label="繰り返し通知間隔">
+            <option value="0">なし</option>
+            <option value="30">30分おき</option>
+            <option value="60">1時間おき</option>
+            <option value="120">2時間おき</option>
           </select>
         </div>
       </div>
@@ -1063,6 +1075,7 @@ interface AppData {
   notificationTime: string;
   notificationStyle: string;
   dayCutoffHour: number;
+  repeatIntervalMin: number;
 }
 
 function defaultData(): AppData {
@@ -1072,6 +1085,7 @@ function defaultData(): AppData {
     notificationTime: '21:00',
     notificationStyle: 'gentle',
     dayCutoffHour: 0,
+    repeatIntervalMin: 30,
   };
 }
 
@@ -1220,6 +1234,7 @@ function handleComplete(): void {
     const today = getToday();
     if (!data.completedDates.includes(today)) data.completedDates.push(today);
     saveData(data);
+    reportDoneToServer();
 
     const streak = calcStreak(data.completedDates);
 
@@ -1324,6 +1339,8 @@ function renderSettings(): void {
     data.notificationStyle;
   (document.getElementById('day-cutoff') as HTMLSelectElement).value =
     String(data.dayCutoffHour ?? 0);
+  (document.getElementById('repeat-interval') as HTMLSelectElement).value =
+    String(data.repeatIntervalMin ?? 30);
   updateNotifStatus();
 }
 
@@ -1385,11 +1402,20 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
 }
 
+function buildSubscribePayload(sub: PushSubscription, data: AppData) {
+  return {
+    subscription: sub.toJSON(),
+    notifTime: data.notificationTime,
+    notifStyle: data.notificationStyle,
+    dayCutoffHour: data.dayCutoffHour ?? 0,
+    repeatIntervalMin: data.repeatIntervalMin ?? 30,
+  };
+}
+
 async function subscribeToServer(): Promise<void> {
   if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   const reg = await navigator.serviceWorker.ready;
   const data = getData();
-
   try {
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
@@ -1398,11 +1424,7 @@ async function subscribeToServer(): Promise<void> {
     await fetch(`${WORKER_URL}/subscribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        subscription: sub.toJSON(),
-        notifTime: data.notificationTime,
-        notifStyle: data.notificationStyle,
-      }),
+      body: JSON.stringify(buildSubscribePayload(sub, data)),
     });
   } catch (e) {
     console.warn('Push subscription failed:', e);
@@ -1436,14 +1458,26 @@ async function updateServerSubscription(): Promise<void> {
     await fetch(`${WORKER_URL}/subscribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        subscription: sub.toJSON(),
-        notifTime: data.notificationTime,
-        notifStyle: data.notificationStyle,
-      }),
+      body: JSON.stringify(buildSubscribePayload(sub, data)),
     });
   } catch (e) {
     console.warn('Update subscription failed:', e);
+  }
+}
+
+async function reportDoneToServer(): Promise<void> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+    await fetch(`${WORKER_URL}/done`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: sub.endpoint, date: getToday() }),
+    });
+  } catch (e) {
+    console.warn('Report done failed:', e);
   }
 }
 
@@ -1601,7 +1635,15 @@ function init(): void {
     const data = getData();
     data.dayCutoffHour = Number((e.target as HTMLSelectElement).value);
     saveData(data);
+    if (data.notificationEnabled) updateServerSubscription();
     renderHome();
+  });
+
+  document.getElementById('repeat-interval')!.addEventListener('change', (e) => {
+    const data = getData();
+    data.repeatIntervalMin = Number((e.target as HTMLSelectElement).value);
+    saveData(data);
+    if (data.notificationEnabled) updateServerSubscription();
   });
 
   document.getElementById('reset-btn')!.addEventListener('click', () => {
