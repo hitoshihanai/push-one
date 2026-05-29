@@ -1065,6 +1065,20 @@ function hideSplash(): void {
 }
 
 // ================================================
+// デバイスID管理（サーバー同期用）
+// ================================================
+const DEVICE_ID_KEY = 'pushone_device_id';
+
+function getDeviceId(): string {
+  let id = localStorage.getItem(DEVICE_ID_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(DEVICE_ID_KEY, id);
+  }
+  return id;
+}
+
+// ================================================
 // データ管理
 // ================================================
 const STORAGE_KEY = 'pushone_v1';
@@ -1133,9 +1147,10 @@ function isTodayDone(): boolean {
 function calcStreak(dates: string[]): number {
   if (!dates.length) return 0;
   const set = new Set(dates);
-  const cur = new Date();
-  // 今日未達成なら昨日から連続チェック開始
-  if (!set.has(getToday())) cur.setDate(cur.getDate() - 1);
+  const todayStr = getToday();
+  // getToday()基準でDateを作る（dayCutoffHour対応）
+  const cur = new Date(todayStr + 'T12:00:00');
+  if (!set.has(todayStr)) cur.setDate(cur.getDate() - 1);
   let streak = 0;
   while (set.has(dateStr(cur))) {
     streak++;
@@ -1234,7 +1249,7 @@ function handleComplete(): void {
     const today = getToday();
     if (!data.completedDates.includes(today)) data.completedDates.push(today);
     saveData(data);
-    reportDoneToServer();
+    reportDoneToServer(today);
 
     const streak = calcStreak(data.completedDates);
 
@@ -1465,19 +1480,40 @@ async function updateServerSubscription(): Promise<void> {
   }
 }
 
-async function reportDoneToServer(): Promise<void> {
-  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+async function reportDoneToServer(date: string): Promise<void> {
   try {
-    const reg = await navigator.serviceWorker.ready;
-    const sub = await reg.pushManager.getSubscription();
-    if (!sub) return;
+    let endpoint: string | null = null;
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      const reg = await navigator.serviceWorker.ready;
+      const sub = await reg.pushManager.getSubscription();
+      endpoint = sub?.endpoint ?? null;
+    }
     await fetch(`${WORKER_URL}/done`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ endpoint: sub.endpoint, date: getToday() }),
+      body: JSON.stringify({ endpoint, date, deviceId: getDeviceId() }),
     });
   } catch (e) {
     console.warn('Report done failed:', e);
+  }
+}
+
+// サーバーから記録を取得してlocalStorageと同期
+async function syncFromServer(): Promise<void> {
+  try {
+    const res = await fetch(`${WORKER_URL}/completions/${getDeviceId()}`);
+    if (!res.ok) return;
+    const { dates } = await res.json() as { dates: string[] };
+    if (!dates.length) return;
+    const data = getData();
+    // サーバーの記録をlocalStorageにマージ（重複排除）
+    const merged = Array.from(new Set([...data.completedDates, ...dates])).sort();
+    if (merged.length !== data.completedDates.length) {
+      data.completedDates = merged;
+      saveData(data);
+    }
+  } catch (e) {
+    console.warn('Sync from server failed:', e);
   }
 }
 
@@ -1584,12 +1620,15 @@ function init(): void {
   // SW登録
   registerSW();
 
+  // サーバーから記録を同期してから描画
+  syncFromServer().then(() => renderHome());
+
   // URLパラメータ確認（通知アクションからの起動）
   if (location.search.includes('action=complete') && !isTodayDone()) {
     handleComplete();
   }
 
-  // ホームビュー描画
+  // ホームビュー描画（同期前の暫定表示）
   renderHome();
 
   // ===== ナビゲーション =====
