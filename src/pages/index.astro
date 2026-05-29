@@ -3,6 +3,13 @@ import Layout from '../layouts/Layout.astro';
 ---
 <Layout>
 
+<!-- ===== スプラッシュ ===== -->
+<div id="splash" aria-hidden="true">
+  <div class="splash-inner">
+    <span class="splash-text">PUSH ONE</span>
+  </div>
+</div>
+
 <!-- ===== APP ROOT ===== -->
 <div id="app">
 
@@ -219,6 +226,53 @@ import Layout from '../layouts/Layout.astro';
     --nav-h:        76px;
     --safe-b:       env(safe-area-inset-bottom, 0px);
     --safe-t:       env(safe-area-inset-top, 0px);
+  }
+
+  /* ===========================
+     スプラッシュスクリーン
+  =========================== */
+  #splash {
+    position: fixed;
+    inset: 0;
+    background: var(--bg);
+    z-index: 999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    pointer-events: none;
+  }
+
+  #splash.hidden {
+    display: none;
+  }
+
+  .splash-inner {
+    overflow: hidden;
+  }
+
+  .splash-text {
+    display: block;
+    font-size: 36px;
+    font-weight: 800;
+    letter-spacing: 8px;
+    color: var(--text);
+    transform: translateX(-110%);
+    animation: splash-slide 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.1s forwards;
+  }
+
+  @keyframes splash-slide {
+    from { transform: translateX(-110%); opacity: 0; }
+    to   { transform: translateX(0);     opacity: 1; }
+  }
+
+  #splash.fade-out {
+    animation: splash-fade 0.4s ease forwards;
+  }
+
+  @keyframes splash-fade {
+    from { opacity: 1; }
+    to   { opacity: 0; }
   }
 
   /* リセット */
@@ -938,6 +992,21 @@ import Layout from '../layouts/Layout.astro';
 <!-- ===== CLIENT SCRIPT ===== -->
 <script>
 // ================================================
+// 定数
+// ================================================
+const WORKER_URL = 'https://push-one-server.hitoshi-hanai.workers.dev';
+const VAPID_PUBLIC_KEY = 'BEeZKZ053r9rgQuiFwk6HuLz_dEJrLLmSfgBMiT5RpVxYr6vbgqz4w-Rvb0ElnkBQr4M_QBIGK2MnDu3uDuhMhY';
+
+// ================================================
+// スプラッシュ
+// ================================================
+function hideSplash(): void {
+  const splash = document.getElementById('splash') as HTMLElement;
+  splash.classList.add('fade-out');
+  splash.addEventListener('animationend', () => splash.classList.add('hidden'), { once: true });
+}
+
+// ================================================
 // データ管理
 // ================================================
 const STORAGE_KEY = 'pushone_v1';
@@ -1227,8 +1296,8 @@ async function handleNotifToggle(enabled: boolean): Promise<void> {
   const data = getData();
 
   if (enabled) {
-    if (!('Notification' in window)) {
-      showAlert('このブラウザは通知に対応していません。');
+    if (!('Notification' in window) || !('PushManager' in window)) {
+      showAlert('通知を使うにはホーム画面に追加（PWAインストール）が必要です。\nSafariの共有ボタン →「ホーム画面に追加」してください。');
       (document.getElementById('notif-toggle') as HTMLInputElement).checked = false;
       return;
     }
@@ -1242,58 +1311,90 @@ async function handleNotifToggle(enabled: boolean): Promise<void> {
     }
     data.notificationEnabled = true;
     saveData(data);
-    scheduleNotificationInSW(data.notificationTime, data.notificationStyle);
+    await subscribeToServer();
   } else {
     data.notificationEnabled = false;
     saveData(data);
-    cancelNotificationInSW();
+    await unsubscribeFromServer();
   }
   updateNotifStatus();
 }
 
 // ================================================
-// 通知
+// VAPID プッシュ通知
 // ================================================
-const NOTIF_MESSAGES: Record<string, string[]> = {
-  gentle: [
-    '今日の腕立て1回、まだです。',
-    '1回だけやろ。',
-    '今日も連続記録つなごう。',
-    'まあ1回だけ。',
-  ],
-  stoic: [
-    '0回で終わるな。',
-    'やれ。',
-    '今日のゼロを防げ。',
-  ],
-  minimal: [
-    'Push One。',
-    '1回。',
-    '今日も。',
-  ],
-};
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = atob(base64);
+  return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+}
 
-async function scheduleNotificationInSW(time: string, style: string): Promise<void> {
-  if (!('serviceWorker' in navigator)) return;
+async function subscribeToServer(): Promise<void> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  const reg = await navigator.serviceWorker.ready;
+  const data = getData();
+
   try {
-    const reg = await navigator.serviceWorker.ready;
-    reg.active?.postMessage({ type: 'SCHEDULE_NOTIFICATION', time, style });
+    const sub = await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+    });
+    await fetch(`${WORKER_URL}/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscription: sub.toJSON(),
+        notifTime: data.notificationTime,
+        notifStyle: data.notificationStyle,
+      }),
+    });
   } catch (e) {
-    console.warn('SW not ready:', e);
+    console.warn('Push subscription failed:', e);
   }
 }
 
-async function cancelNotificationInSW(): Promise<void> {
-  if (!('serviceWorker' in navigator)) return;
+async function unsubscribeFromServer(): Promise<void> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
   try {
     const reg = await navigator.serviceWorker.ready;
-    reg.active?.postMessage({ type: 'CANCEL_NOTIFICATION' });
-  } catch {}
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+    await fetch(`${WORKER_URL}/subscribe`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ endpoint: sub.endpoint }),
+    });
+    await sub.unsubscribe();
+  } catch (e) {
+    console.warn('Unsubscribe failed:', e);
+  }
+}
+
+async function updateServerSubscription(): Promise<void> {
+  if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return;
+    const data = getData();
+    await fetch(`${WORKER_URL}/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subscription: sub.toJSON(),
+        notifTime: data.notificationTime,
+        notifStyle: data.notificationStyle,
+      }),
+    });
+  } catch (e) {
+    console.warn('Update subscription failed:', e);
+  }
 }
 
 async function sendTestNotification(): Promise<void> {
   if (!('Notification' in window)) {
-    showAlert('このブラウザは通知に対応していません。');
+    showAlert('このブラウザは通知に対応していません。\nホーム画面に追加してから試してください。');
     return;
   }
   if (Notification.permission !== 'granted') {
@@ -1303,26 +1404,20 @@ async function sendTestNotification(): Promise<void> {
       return;
     }
   }
-
-  const data = getData();
-  const msgs = NOTIF_MESSAGES[data.notificationStyle] || NOTIF_MESSAGES.gentle;
-  const body = msgs[Math.floor(Math.random() * msgs.length)];
-
   try {
     const reg = await navigator.serviceWorker.ready;
     await reg.showNotification('Push One', {
-      body,
-      icon: '/icons/icon.svg',
+      body: 'テスト通知です。1回やった ✓ を押してみてください。',
+      icon: '/icons/icon-192.svg',
       tag: 'push-one-test',
       requireInteraction: false,
+      actions: [
+        { action: 'done', title: '1回やった ✓' },
+        { action: 'later', title: 'あとで' },
+      ],
     });
-  } catch {
-    // SW通知失敗時はNotification APIでフォールバック
-    try {
-      new Notification('Push One', { body, icon: '/icons/icon.svg' });
-    } catch (e2) {
-      console.warn('Notification failed:', e2);
-    }
+  } catch (e) {
+    console.warn('Notification failed:', e);
   }
 }
 
@@ -1435,15 +1530,14 @@ function init(): void {
     const data = getData();
     data.notificationTime = (e.target as HTMLInputElement).value;
     saveData(data);
-    if (data.notificationEnabled) {
-      scheduleNotificationInSW(data.notificationTime, data.notificationStyle);
-    }
+    if (data.notificationEnabled) updateServerSubscription();
   });
 
   document.getElementById('notif-style')!.addEventListener('change', (e) => {
     const data = getData();
     data.notificationStyle = (e.target as HTMLSelectElement).value;
     saveData(data);
+    if (data.notificationEnabled) updateServerSubscription();
   });
 
   document.getElementById('test-notif-btn')!.addEventListener('click', sendTestNotification);
@@ -1461,13 +1555,10 @@ function init(): void {
     );
   });
 
-  // 通知スケジュールの復元（アプリ再起動時）
-  const data = getData();
-  if (data.notificationEnabled && typeof Notification !== 'undefined' &&
-      Notification.permission === 'granted') {
-    scheduleNotificationInSW(data.notificationTime, data.notificationStyle);
-  }
 }
+
+// スプラッシュを800ms後に非表示
+setTimeout(hideSplash, 800);
 
 // DOMContentLoaded 相当（Astroのモジュールスクリプトはdeferred）
 init();
