@@ -5,8 +5,10 @@ import Layout from '../layouts/Layout.astro';
 
 <!-- ===== スプラッシュ ===== -->
 <div id="splash" aria-hidden="true">
+  <span class="splash-bg-num">1</span>
   <div class="splash-inner">
     <span class="splash-text">PUSH ONE</span>
+    <span class="splash-sub">Every Day a push up</span>
   </div>
 </div>
 
@@ -247,8 +249,24 @@ import Layout from '../layouts/Layout.astro';
     display: none;
   }
 
+  .splash-bg-num {
+    position: absolute;
+    font-size: 60vw;
+    font-weight: 900;
+    color: var(--text);
+    opacity: 0.04;
+    line-height: 1;
+    user-select: none;
+    letter-spacing: -4px;
+  }
+
   .splash-inner {
     overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    position: relative;
   }
 
   .splash-text {
@@ -259,6 +277,16 @@ import Layout from '../layouts/Layout.astro';
     color: var(--text);
     transform: translateX(-110%);
     animation: splash-slide 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.1s forwards;
+  }
+
+  .splash-sub {
+    display: block;
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 2px;
+    color: var(--text-2);
+    transform: translateX(-110%);
+    animation: splash-slide 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.2s forwards;
   }
 
   @keyframes splash-slide {
@@ -1557,8 +1585,8 @@ function init(): void {
 
 }
 
-// スプラッシュを800ms後に非表示
-setTimeout(hideSplash, 800);
+// スプラッシュを1600ms後に非表示
+setTimeout(hideSplash, 1600);
 
 // DOMContentLoaded 相当（Astroのモジュールスクリプトはdeferred）
 init();
