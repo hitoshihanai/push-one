@@ -207,15 +207,15 @@ import Layout from '../layouts/Layout.astro';
 <style is:global>
   /* CSS変数 */
   :root {
-    --bg:           #080808;
-    --bg-raised:    #141414;
-    --bg-card:      #1c1c1e;
-    --text:         #ffffff;
-    --text-2:       rgba(255,255,255,0.50);
-    --text-3:       rgba(255,255,255,0.25);
-    --border:       rgba(255,255,255,0.08);
+    --bg:           #f2f2f7;
+    --bg-raised:    #ffffff;
+    --bg-card:      #ffffff;
+    --text:         #1c1c1e;
+    --text-2:       rgba(0,0,0,0.50);
+    --text-3:       rgba(0,0,0,0.30);
+    --border:       rgba(0,0,0,0.10);
     --success:      #30d158;
-    --danger:       #ff453a;
+    --danger:       #ff3b30;
     --nav-h:        76px;
     --safe-b:       env(safe-area-inset-bottom, 0px);
     --safe-t:       env(safe-area-inset-top, 0px);
@@ -358,8 +358,8 @@ import Layout from '../layouts/Layout.astro';
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 0 0 0 rgba(255,255,255,0.15),
-                0 8px 32px rgba(0,0,0,0.5);
+    box-shadow: 0 0 0 0 rgba(0,0,0,0.08),
+                0 8px 32px rgba(0,0,0,0.18);
   }
 
   .cta-btn:active {
@@ -647,7 +647,7 @@ import Layout from '../layouts/Layout.astro';
   .toggle-track {
     position: absolute;
     inset: 0;
-    background: rgba(255,255,255,0.14);
+    background: rgba(0,0,0,0.12);
     border-radius: 999px;
     transition: background 0.28s ease;
     cursor: pointer;
@@ -676,7 +676,7 @@ import Layout from '../layouts/Layout.astro';
 
   /* 時間入力 */
   .time-input {
-    background: rgba(255,255,255,0.07);
+    background: rgba(0,0,0,0.04);
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text);
@@ -694,7 +694,7 @@ import Layout from '../layouts/Layout.astro';
 
   /* セレクト */
   .select-input {
-    background: rgba(255,255,255,0.07);
+    background: rgba(0,0,0,0.04);
     border: 1px solid var(--border);
     border-radius: 8px;
     color: var(--text);
@@ -726,7 +726,7 @@ import Layout from '../layouts/Layout.astro';
   }
 
   .test-btn {
-    background: rgba(255,255,255,0.06);
+    background: rgba(0,0,0,0.04);
     border: 1px solid var(--border);
     border-radius: 10px;
     color: var(--text-2);
@@ -740,7 +740,7 @@ import Layout from '../layouts/Layout.astro';
   }
 
   .test-btn:active {
-    background: rgba(255,255,255,0.12);
+    background: rgba(0,0,0,0.08);
     color: var(--text);
   }
 
@@ -800,7 +800,7 @@ import Layout from '../layouts/Layout.astro';
     z-index: 100;
     height: calc(var(--nav-h) + var(--safe-b));
     padding-bottom: var(--safe-b);
-    background: rgba(10, 10, 10, 0.94);
+    background: rgba(242, 242, 247, 0.94);
     backdrop-filter: blur(24px) saturate(180%);
     -webkit-backdrop-filter: blur(24px) saturate(180%);
     border-top: 1px solid var(--border);
@@ -908,7 +908,7 @@ import Layout from '../layouts/Layout.astro';
   }
 
   .confirm-cancel {
-    background: rgba(255,255,255,0.07);
+    background: rgba(0,0,0,0.05);
     border: none;
     border-radius: 12px;
     color: var(--text-2);
