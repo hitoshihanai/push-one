@@ -159,6 +159,24 @@ import Layout from '../layouts/Layout.astro';
         </button>
       </div>
 
+      <!-- 日付区切り -->
+      <div class="settings-group">
+        <div class="setting-row">
+          <div class="setting-info">
+            <span class="setting-title">1日の区切り時刻</span>
+            <span class="setting-desc">この時刻まで前日扱いで記録</span>
+          </div>
+          <select id="day-cutoff" class="select-input" aria-label="1日の区切り時刻">
+            <option value="0">0時（区切りなし）</option>
+            <option value="1">午前1時</option>
+            <option value="2">午前2時</option>
+            <option value="3">午前3時</option>
+            <option value="4">午前4時</option>
+            <option value="5">午前5時</option>
+          </select>
+        </div>
+      </div>
+
       <!-- データリセット -->
       <div class="settings-group">
         <div class="setting-row">
@@ -1044,6 +1062,7 @@ interface AppData {
   notificationEnabled: boolean;
   notificationTime: string;
   notificationStyle: string;
+  dayCutoffHour: number;
 }
 
 function defaultData(): AppData {
@@ -1052,6 +1071,7 @@ function defaultData(): AppData {
     notificationEnabled: false,
     notificationTime: '21:00',
     notificationStyle: 'gentle',
+    dayCutoffHour: 0,
   };
 }
 
@@ -1074,6 +1094,11 @@ function saveData(data: AppData): void {
 // ================================================
 function getToday(): string {
   const d = new Date();
+  const cutoff = getData().dayCutoffHour;
+  // 設定した区切り時刻より前なら前日扱い
+  if (cutoff > 0 && d.getHours() < cutoff) {
+    d.setDate(d.getDate() - 1);
+  }
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
   const day = String(d.getDate()).padStart(2, '0');
@@ -1297,6 +1322,8 @@ function renderSettings(): void {
     data.notificationTime;
   (document.getElementById('notif-style') as HTMLSelectElement).value =
     data.notificationStyle;
+  (document.getElementById('day-cutoff') as HTMLSelectElement).value =
+    String(data.dayCutoffHour ?? 0);
   updateNotifStatus();
 }
 
@@ -1569,6 +1596,13 @@ function init(): void {
   });
 
   document.getElementById('test-notif-btn')!.addEventListener('click', sendTestNotification);
+
+  document.getElementById('day-cutoff')!.addEventListener('change', (e) => {
+    const data = getData();
+    data.dayCutoffHour = Number((e.target as HTMLSelectElement).value);
+    saveData(data);
+    renderHome();
+  });
 
   document.getElementById('reset-btn')!.addEventListener('click', () => {
     showConfirm(
