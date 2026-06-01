@@ -1120,19 +1120,8 @@ function saveData(data: AppData): void {
 // ================================================
 // 日付ヘルパー
 // ================================================
-function getToday(): string {
-  const d = new Date();
-  const cutoff = getData().dayCutoffHour;
-  // 設定した区切り時刻より前なら前日扱い
-  if (cutoff > 0 && d.getHours() < cutoff) {
-    d.setDate(d.getDate() - 1);
-  }
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
 
+// Date → YYYY-MM-DD 文字列（ローカルタイム基準）
 function dateStr(d: Date): string {
   const y = d.getFullYear();
   const m = String(d.getMonth() + 1).padStart(2, '0');
@@ -1140,17 +1129,40 @@ function dateStr(d: Date): string {
   return `${y}-${m}-${day}`;
 }
 
-function isTodayDone(): boolean {
-  return getData().completedDates.includes(getToday());
+// dayCutoffHour を考慮した「今日」の日付文字列を返す
+// cutoffHour=5 のとき 0:00〜4:59 は前日扱い
+function getToday(cutoffHour?: number): string {
+  const d = new Date();
+  const cutoff = cutoffHour ?? getData().dayCutoffHour;
+  // 区切り時刻（例: 5時）より前なら前日として扱う
+  if (cutoff > 0 && d.getHours() < cutoff) {
+    d.setDate(d.getDate() - 1);
+  }
+  return dateStr(d);
 }
 
-function calcStreak(dates: string[]): number {
+function isTodayDone(): boolean {
+  const data = getData();
+  return data.completedDates.includes(getToday(data.dayCutoffHour));
+}
+
+function calcStreak(dates: string[], cutoffHour?: number): number {
   if (!dates.length) return 0;
   const set = new Set(dates);
-  const todayStr = getToday();
-  // getToday()基準でDateを作る（dayCutoffHour対応）
-  const cur = new Date(todayStr + 'T12:00:00');
-  if (!set.has(todayStr)) cur.setDate(cur.getDate() - 1);
+  // dayCutoffHour を明示的に受け取って一貫した「今日」を使う
+  const cutoff = cutoffHour ?? getData().dayCutoffHour;
+  const todayStr = getToday(cutoff);
+
+  // Dateオブジェクトはローカルタイムの正午で初期化してタイムゾーン問題を防ぐ
+  // ただし new Date('YYYY-MM-DD') は UTC 解釈されるため、年月日を分解して初期化する
+  const [ty, tm, td] = todayStr.split('-').map(Number);
+  const cur = new Date(ty, tm - 1, td, 12, 0, 0); // ローカルタイム正午
+
+  // 今日がまだ未達成なら昨日から連続チェック開始
+  if (!set.has(todayStr)) {
+    cur.setDate(cur.getDate() - 1);
+  }
+
   let streak = 0;
   while (set.has(dateStr(cur))) {
     streak++;
@@ -1209,7 +1221,7 @@ function switchView(viewId: string): void {
 // ================================================
 function renderHome(): void {
   const data = getData();
-  const streak = calcStreak(data.completedDates);
+  const streak = calcStreak(data.completedDates, data.dayCutoffHour);
   const done = isTodayDone();
 
   (document.getElementById('streak-number') as HTMLElement).textContent = String(streak);
@@ -1244,14 +1256,14 @@ function handleComplete(): void {
   if ('vibrate' in navigator) navigator.vibrate([12, 40, 12]);
 
   setTimeout(() => {
-    // データ保存
+    // データ保存（dayCutoffHour を取得してから today を確定する）
     const data = getData();
-    const today = getToday();
+    const today = getToday(data.dayCutoffHour);
     if (!data.completedDates.includes(today)) data.completedDates.push(today);
     saveData(data);
     reportDoneToServer(today);
 
-    const streak = calcStreak(data.completedDates);
+    const streak = calcStreak(data.completedDates, data.dayCutoffHour);
 
     // DOM更新
     (document.getElementById('done-msg') as HTMLElement).textContent = randomAchievement();
@@ -1279,8 +1291,8 @@ const MONTHS_JA   = ['1月','2月','3月','4月','5月','6月',
 function renderRecord(): void {
   const data = getData();
   const doneSet = new Set(data.completedDates);
-  const streak = calcStreak(data.completedDates);
-  const today = getToday();
+  const streak = calcStreak(data.completedDates, data.dayCutoffHour);
+  const today = getToday(data.dayCutoffHour);
 
   const year  = calMonth.getFullYear();
   const month = calMonth.getMonth();
