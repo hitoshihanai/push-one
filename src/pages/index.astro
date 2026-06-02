@@ -203,6 +203,7 @@ import Layout from '../layouts/Layout.astro';
         <p class="app-info-name">PUSH ONE</p>
         <p class="app-info-sub">Just One Push-Up a Day</p>
         <p class="app-info-ver">v1.0.0</p>
+        <p class="app-info-ver" id="device-id-display" style="opacity:0.4;font-size:9px;word-break:break-all;"></p>
       </footer>
 
     </div>
@@ -1714,6 +1715,10 @@ function init(): void {
 
 // スプラッシュを1600ms後に非表示
 setTimeout(hideSplash, 1600);
+
+// device_idを設定画面フッターに表示
+const el = document.getElementById('device-id-display');
+if (el) el.textContent = 'ID: ' + getDeviceId();
 
 // DOMContentLoaded 相当（Astroのモジュールスクリプトはdeferred）
 init();
