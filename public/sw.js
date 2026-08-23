@@ -1,4 +1,4 @@
-const CACHE_NAME = 'push-one-v4';
+const CACHE_NAME = 'push-one-v5';
 const APP_SHELL = [
   '/',
   '/manifest.json',

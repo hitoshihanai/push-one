@@ -105,6 +105,8 @@ import Layout from '../layouts/Layout.astro';
         </div>
 
         <div class="cal-grid" id="cal-grid" role="grid" aria-label="達成カレンダー"></div>
+
+        <p class="cal-hint">未達成の過去の日をタップすると、後から記録できます。</p>
       </div>
 
     </div>
@@ -687,12 +689,32 @@ import Layout from '../layouts/Layout.astro';
     font-weight: 600;
   }
 
+  /* 後から記録できるセル（未達成かつ今日以前） */
+  .cal-day.addable {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .cal-day.addable:active {
+    background: rgba(0,0,0,0.06);
+    transform: scale(0.94);
+  }
+
   .cal-dot {
     width: 4px;
     height: 4px;
     border-radius: 50%;
     background: var(--success);
     flex-shrink: 0;
+  }
+
+  /* カレンダー下の補助テキスト */
+  .cal-hint {
+    font-size: 11px;
+    color: var(--text-3);
+    text-align: center;
+    margin-top: 10px;
+    line-height: 1.5;
   }
 
   /* ===========================
@@ -1020,6 +1042,20 @@ import Layout from '../layouts/Layout.astro';
     -webkit-tap-highlight-color: transparent;
   }
 
+  /* 破壊的でない確認ダイアログのOKボタン（記録する等） */
+  .confirm-primary {
+    background: var(--success);
+    border: none;
+    border-radius: 12px;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    font-family: inherit;
+    padding: 14px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
   .confirm-cancel {
     background: rgba(0,0,0,0.05);
     border: none;
@@ -1329,14 +1365,26 @@ function renderRecord(): void {
     const isToday  = ds === today;
     const isFuture = ds > today;
 
+    // 未達成かつ今日以前ならタップで後から記録できる
+    const isAddable = !isDone && !isFuture;
+
     const cell = document.createElement('div');
     const classes = ['cal-day'];
-    if (isDone)   classes.push('done');
-    if (isToday)  classes.push('today');
-    if (isFuture) classes.push('future');
+    if (isDone)    classes.push('done');
+    if (isToday)   classes.push('today');
+    if (isFuture)  classes.push('future');
+    if (isAddable) classes.push('addable');
     cell.className = classes.join(' ');
-    cell.setAttribute('role', 'gridcell');
-    cell.setAttribute('aria-label', `${d}日${isDone ? '（達成）' : ''}`);
+    cell.dataset.date = ds;
+
+    if (isAddable) {
+      cell.setAttribute('role', 'button');
+      cell.setAttribute('tabindex', '0');
+      cell.setAttribute('aria-label', `${month + 1}月${d}日を記録する`);
+    } else {
+      cell.setAttribute('role', 'gridcell');
+      cell.setAttribute('aria-label', `${d}日${isDone ? '（達成）' : ''}`);
+    }
 
     const numEl = document.createElement('span');
     numEl.className = 'cal-day-num';
@@ -1352,6 +1400,55 @@ function renderRecord(): void {
 
     grid.appendChild(cell);
   }
+}
+
+// ================================================
+// 事後記録（カレンダーから過去日を後から記録する）
+// ================================================
+
+// 指定日を達成として保存する。描画は呼び出し側の責務
+// includeEndpoint は「今日」を記録するときだけ true（設計書R-1）
+function recordDate(ds: string, includeEndpoint: boolean): void {
+  const data = getData();
+  if (data.completedDates.includes(ds)) return;
+
+  data.completedDates.push(ds);
+  data.completedDates.sort();
+  saveData(data);
+
+  reportDoneToServer(ds, includeEndpoint);
+
+  // 触覚フィードバック（対応デバイスのみ）
+  if ('vibrate' in navigator) navigator.vibrate(12);
+}
+
+// カレンダーセルのタップ処理
+function handleCalendarTap(ds: string): void {
+  // 防御的検証：想定外の値は黙って無視する
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ds)) return;
+
+  const data = getData();
+  const today = getToday(data.dayCutoffHour);
+
+  // 未来日は記録できない
+  if (ds > today) return;
+  // 既に達成済みの日は無反応（取り消しは行わない）
+  if (data.completedDates.includes(ds)) return;
+
+  // ダイアログ文言は日付文字列を直接埋め込まず、数値から組み立てる（XSS対策）
+  const [, m, d] = ds.split('-').map(Number);
+
+  showConfirm(
+    `${m}月${d}日を記録`,
+    'この日に「やった」として記録します。記録の取り消しはできません。',
+    () => {
+      recordDate(ds, ds === today);
+      // 各 render は内部で getData() を呼び直すので、保存後に呼ぶだけでよい
+      renderRecord();
+      renderHome();
+    },
+    { okLabel: '記録する', okClass: 'confirm-primary' }
+  );
 }
 
 // ================================================
@@ -1493,10 +1590,13 @@ async function updateServerSubscription(): Promise<void> {
   }
 }
 
-async function reportDoneToServer(date: string): Promise<void> {
+// includeEndpoint=false のときは endpoint を送らない。
+// 過去日の記録で endpoint を送ると subscriptions.last_done_date が過去日で上書きされ、
+// 当日を達成済みでも当日のリマインド通知が復活してしまうため（設計書R-1）
+async function reportDoneToServer(date: string, includeEndpoint = true): Promise<void> {
   try {
     let endpoint: string | null = null;
-    if ('serviceWorker' in navigator && 'PushManager' in window) {
+    if (includeEndpoint && 'serviceWorker' in navigator && 'PushManager' in window) {
       const reg = await navigator.serviceWorker.ready;
       const sub = await reg.pushManager.getSubscription();
       endpoint = sub?.endpoint ?? null;
@@ -1562,7 +1662,19 @@ async function sendTestNotification(): Promise<void> {
 // ================================================
 // カスタム確認ダイアログ
 // ================================================
-function showConfirm(title: string, body: string, onConfirm: () => void): void {
+// options でOKボタンのラベルとクラスを差し替えられる。
+// 既定値は従来のハードコード値と同一なので、既存の呼び出しは無変更で従来動作
+type ConfirmOptions = { okLabel?: string; okClass?: string };
+
+function showConfirm(
+  title: string,
+  body: string,
+  onConfirm: () => void,
+  options: ConfirmOptions = {}
+): void {
+  const okLabel = options.okLabel ?? 'リセットする';
+  const okClass = options.okClass ?? 'confirm-danger';
+
   const overlay = document.createElement('div');
   overlay.className = 'confirm-overlay';
   overlay.innerHTML = `
@@ -1570,7 +1682,7 @@ function showConfirm(title: string, body: string, onConfirm: () => void): void {
       <p class="confirm-title" id="conf-title">${title}</p>
       <p class="confirm-body">${body}</p>
       <div class="confirm-actions">
-        <button class="confirm-danger" id="conf-ok">リセットする</button>
+        <button class="${okClass}" id="conf-ok">${okLabel}</button>
         <button class="confirm-cancel" id="conf-cancel">キャンセル</button>
       </div>
     </div>
@@ -1660,6 +1772,22 @@ function init(): void {
   document.getElementById('next-month')!.addEventListener('click', () => {
     calMonth.setMonth(calMonth.getMonth() + 1);
     renderRecord();
+  });
+
+  // カレンダーのタップは #cal-grid へのイベント委譲で1回だけ登録する。
+  // renderRecord() は子要素だけ入れ替えるため、ここで登録すれば重複登録は起きない
+  const calGrid = document.getElementById('cal-grid')!;
+  calGrid.addEventListener('click', (e) => {
+    const cell = (e.target as HTMLElement).closest('.cal-day.addable') as HTMLElement | null;
+    if (!cell || !cell.dataset.date) return;
+    handleCalendarTap(cell.dataset.date);
+  });
+  calGrid.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    const cell = (e.target as HTMLElement).closest('.cal-day.addable') as HTMLElement | null;
+    if (!cell || !cell.dataset.date) return;
+    e.preventDefault();
+    handleCalendarTap(cell.dataset.date);
   });
 
   // ===== 設定ビュー =====
